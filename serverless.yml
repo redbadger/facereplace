@@ -13,7 +13,7 @@ provider:
         - rekognition:DetectFaces
       Resource: '*'
 custom:
-  buketName: ${self:service}-${opt:stage}-uploads
+  bucketName: ${self:service}-${opt:stage}-uploads
 functions:
   facereplace:
     handler: src/facereplace.handler
