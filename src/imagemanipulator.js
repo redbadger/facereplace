@@ -1,4 +1,4 @@
-const BpPromise = require('bluebird');
+const BbPromise = require('bluebird');
 const path = require('path');
 const uuidV4 = require('uuid/v4');
 const gm = require('gm').subClass({imageMagick: true});

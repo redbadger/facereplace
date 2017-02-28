@@ -58,6 +58,7 @@ const overlayEmoji = BbPromise.coroutine(function* (image, imageHeight, imageWid
   const boundingBox = face.BoundingBox;
   const faceWidth = parseInt(boundingBox.Width * imageWidth, 10) + 10;
   const faceHeight = parseInt(boundingBox.Height * imageHeight, 10) + 10;
+
   const emotion = getEmotion(face);
   const imagePath = path.join(__dirname, 'emojis', emotion + '.png');
   const emojiPath = yield imagemanipulator.resize(imagePath, faceWidth, faceHeight);
@@ -75,35 +76,32 @@ const overlayFacesWithEmoji = BbPromise.coroutine(function* (imagePath, imageDat
 
   try {
     const image = gm(imageData);
-
-    const sizeResult = yield imagemanipulator.getSize(image, true);
+    const size = yield imagemanipulator.getSize(image, true);
     const tempImagePath = yield imagemanipulator.toDisk(image, imagePath);
 
     tmpEmojis.push(tempImagePath);
 
-    const height = sizeResult.height;
-    const width = sizeResult.width;
+    const height = size.height;
+    const width = size.width;
 
     const composedImage = yield BbPromise.reduce(faceDetails, (i, face) =>
-    overlayEmoji(i, height, width, face, tmpEmojis),
-    gm().in('-page', '+0+0', tempImagePath) // init with image
-  );
+      overlayEmoji(i, height, width, face, tmpEmojis),
+      gm().in('-page', '+0+0', tempImagePath) // init with image
+    );
+    logger.log('Composed image');
 
-  logger.log('Composed image');
+    const newImageBuffer = yield imagemanipulator.toBuffer(composedImage.mosaic());
+    yield s3.uploadImage(imagePath, newImageBuffer);
 
-  const newImageBuffer = yield imagemanipulator.toBuffer(composedImage.mosaic());
-
-  yield s3.uploadImage(imagePath, newImageBuffer);
-} catch (e) {
-  throw e;
-} finally {
-  logger.log('Cleaning up tmp images ', tmpEmojis);
-
-  if (tmpEmojis.length) {
-    // Clean up! - this is important Lambda is not completely stateless
-    yield BbPromise.all(tmpEmojis, (p) => unlinkAsync(p));
+  } catch (e) {
+    throw e;
+    
+  } finally {
+    logger.log('Cleaning up tmp images ', tmpEmojis);
+    if (tmpEmojis.length) {
+      yield BbPromise.all(tmpEmojis, (p) => unlinkAsync(p));
+    }
   }
-}
 });
 
 const processImages = (imageFaces) => BbPromise.map(Object.keys(imageFaces), (imagePath) =>

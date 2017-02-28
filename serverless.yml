@@ -1,4 +1,4 @@
-service: facereplace
+service: faceswap
 provider:
   name: aws
   runtime: nodejs4.3
@@ -7,6 +7,7 @@ provider:
       Action:
         - "s3:GetObject"
         - "s3:PutObject"
+        - "s3:ListBucket"
       Resource: arn:aws:s3:::${self:custom.bucketName}/*
     - Effect: "Allow"
       Action:
@@ -24,7 +25,7 @@ functions:
       PROCESSED_DIR_NAME: processed
     events:
       - s3:
-        bucket: ${self:custom.bucketName}
-        event: s3.ObjectCreated:*
-        rules:
+          bucket: ${self:custom.bucketName}
+          event: s3:ObjectCreated:*
+          rules:
           - prefix: uploads/

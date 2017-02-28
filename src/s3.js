@@ -1,5 +1,5 @@
 const AWS = require('aws-sdk');
-const BpPromise = require('bluebird');
+const BbPromise = require('bluebird');
 const path = require('path');
 const constants = require('./constants');
 
