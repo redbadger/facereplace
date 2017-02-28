@@ -8,7 +8,7 @@ const getTmpPath = (imageName) => path.join('/tmp', uuidV4() + path.extname(imag
 
 const resize = (imagePath, width, height) => new BbPromise((resolve, reject) => {
   const tempPath = getTmpPath('temp.png');
-  logger.log('Creating tmp overlay image', {tempPath, width, height, fileName});
+  logger.log('Creating tmp overlay image', {tempPath, width, height});
 
   gm(imagePath)
     .resize(width.toString(), height.toString())
@@ -18,10 +18,11 @@ const resize = (imagePath, width, height) => new BbPromise((resolve, reject) => 
     });
 });
 
-const toDisk = (image, path) => new BbPromise((resolve, reject) => {
+const toDisk = (image, imagePath) => new BbPromise((resolve, reject) => {
+  const path = getTmpPath(imagePath);
   image.write(path, (err) => {
     if (err) reject(err);
-    else resolve(getTmpPath(path));
+    else resolve(path);
   });
 });
 

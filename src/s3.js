@@ -4,7 +4,7 @@ const path = require('path');
 const constants = require('./constants');
 
 const BUCKET_NAME = constants.BUCKET_NAME;
-const PROCESSED_DIR_NAME = constants.BUCKET_NAME;
+const PROCESSED_DIR_NAME = constants.PROCESSED_DIR_NAME;
 
 const s3 = new AWS.S3();
 

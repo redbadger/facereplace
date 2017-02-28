@@ -21,8 +21,10 @@ const detectFacesOnImages = (images) => BbPromise.reduce(images, (accum, i) => {
   return new BbPromise((resolve, reject) => {
     rekognition.detectFaces(params, (err, data) => {
       if (err) reject(err);
-      if (data.FaceDetails.length) accum[i] = data;
-      resolve(accum);
+      else if (data.FaceDetails.length) {
+        accum[i] = data;
+        resolve(accum);
+      }
     });
   });
 }, {});
