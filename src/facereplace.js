@@ -1,9 +1,6 @@
-const AWS = require('aws-sdk');
 const BbPromise = require('bluebird');
 const path = require('path');
 const fs = require('fs');
-const uuidV4 = require('uuid/v4');
-
 
 const gm = require('gm').subClass({
   imageMagick: true
@@ -11,7 +8,9 @@ const gm = require('gm').subClass({
 
 const logger = require('./logger');
 const constants = require('./constants');
+const rekognition = require('./rekognition');
 const s3 = require('./s3');
+const imagemanipulator = require('./imagemanipulator');
 
 const BUCKET_NAME = constants.BUCKET_NAME;
 const ALLOWED_EXTENSIONS = constants.ALLOWED_EXTENSIONS;
@@ -23,65 +22,14 @@ const getImagesFromEvent = (event) => event.Records.reduce((accum, r) => {
   if (r.s3.bucket.name === BUCKET_NAME) {
     const key = r.s3.object.key;
     const extension = path.extname(key).toLowerCase();
-
     if (ALLOWED_EXTENSIONS.indexOf(extension) !== -1) {
       accum.push(key);
     }
   }
-
   return accum;
 }, []);
 
-const getTmpPath = (imageName) => path.join('/tmp', uuidV4() + path.extname(imageName));
-
-const getImageSize = (image, bufferStream) => new BbPromise((resolve, reject) => {
-  image.size({
-    bufferStream: bufferStream
-  }, (err, result) => {
-    if (err) {
-      reject(err);
-      return;
-    }
-
-    logger.log('Found size info', result);
-    resolve(result);
-  });
-});
-
-const createTempEmoji = (emojiType, width, height) => new BbPromise((resolve, reject) => {
-  const emojiPath = path.join(__dirname, 'emoji', emojiType + '.png');
-  const tempPath = getTmpPath('emoji.png');
-
-  logger.log('Creating tmp emoji image', {
-    tempPath,
-    width,
-    height,
-    emojiType
-  });
-
-  gm(emojiPath)
-  .resize(width.toString(), height.toString())
-  .write(tempPath, (err) => {
-    if (err) reject(err);
-    resolve(tempPath);
-  });
-});
-
-const imageToDisk = (image, path) => new BbPromise((resolve, reject) => {
-  image.write(path, (err) => {
-    if (err) reject(err);
-    else resolve(path);
-  });
-});
-
-const imageToBuffer = (image) => new BbPromise((resolve, reject) => {
-  image.toBuffer('jpg', (err, buffer) => {
-    if (err) reject(err);
-    else resolve(buffer);
-  });
-});
-
-const getEmojiType = (faceDetails) => {
+const getEmotion = (faceDetails) => {
   if (!faceDetails.Emotions) return 'unknown'
 
   const emotion = faceDetails.Emotions.reduce((mostLikely, e) => {
@@ -108,19 +56,17 @@ const getEmojiType = (faceDetails) => {
 
 const overlayEmoji = BbPromise.coroutine(function* (image, imageHeight, imageWidth, face, tmpEmojis) {
   const boundingBox = face.BoundingBox;
-
-  const emojiWidth = parseInt(boundingBox.Width * imageWidth, 10) + 10;
-  const emojiHeight = parseInt(boundingBox.Height * imageHeight, 10) + 10;
-  const emojiType = getEmojiType(face);
-
-  const emojiPath = yield createTempEmoji(emojiType, emojiWidth, emojiHeight);
+  const faceWidth = parseInt(boundingBox.Width * imageWidth, 10) + 10;
+  const faceHeight = parseInt(boundingBox.Height * imageHeight, 10) + 10;
+  const emotion = getEmotion(face);
+  const imagePath = path.join(__dirname, 'emojis', emotion + '.png');
+  const emojiPath = yield imagemanipulator.resize(imagePath, faceWidth, faceHeight);
 
   tmpEmojis.push(emojiPath);
 
   const xy = `+${boundingBox.Left * imageWidth}+${boundingBox.Top * imageHeight}`
 
   logger.log('Composing image', { emojiPath, xy });
-
   return image.in('-page', xy, emojiPath);
 });
 
@@ -130,8 +76,8 @@ const overlayFacesWithEmoji = BbPromise.coroutine(function* (imagePath, imageDat
   try {
     const image = gm(imageData);
 
-    const sizeResult = yield getImageSize(image, true);
-    const tempImagePath = yield imageToDisk(image, getTmpPath(imagePath));
+    const sizeResult = yield imagemanipulator.getSize(image, true);
+    const tempImagePath = yield imagemanipulator.toDisk(image, imagePath);
 
     tmpEmojis.push(tempImagePath);
 
@@ -145,7 +91,7 @@ const overlayFacesWithEmoji = BbPromise.coroutine(function* (imagePath, imageDat
 
   logger.log('Composed image');
 
-  const newImageBuffer = yield imageToBuffer(composedImage.mosaic());
+  const newImageBuffer = yield imagemanipulator.toBuffer(composedImage.mosaic());
 
   yield s3.uploadImage(imagePath, newImageBuffer);
 } catch (e) {
@@ -161,30 +107,26 @@ const overlayFacesWithEmoji = BbPromise.coroutine(function* (imagePath, imageDat
 });
 
 const processImages = (imageFaces) => BbPromise.map(Object.keys(imageFaces), (imagePath) =>
-s3.downloadImage(imagePath).then((response) => {
-  const faceDetails = imageFaces[imagePath].FaceDetails;
-
-  return overlayFacesWithEmoji(imagePath, response.Body, faceDetails);
-})
+  s3.downloadImage(imagePath).then((response) => {
+    const faceDetails = imageFaces[imagePath].FaceDetails;
+    return overlayFacesWithEmoji(imagePath, response.Body, faceDetails);
+  })
 );
 
-module.exports.handler = BbPromise.coroutine(function* (event, context, cb) {
+module.exports.handler = BbPromise.coroutine(function* (event, context, callback) {
   try {
     logger.log('Recieved Event', event);
-
     const images = getImagesFromEvent(event);
 
     logger.log('Found images on event', images);
-
-    const imageFaces = yield detectFacesOnImages(images);
+    const imageFaces = yield rekognition.detectFacesOnImages(images);
 
     logger.log('Detected faces', imageFaces);
-
     yield processImages(imageFaces);
 
-    cb(null);
+    callback(null);
   } catch (err) {
     logger.log('Error', err);
-    cb(err);
+    callback(err);
   }
 });
