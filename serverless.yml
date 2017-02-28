@@ -1,0 +1,30 @@
+service: facereplace
+provider:
+  name: aws
+  runtime: nodejs4.3
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "s3:GetObject"
+        - "s3:PutObject"
+      Resource: arn:aws:s3:::${self:custom.bucketName}/*
+    - Effect: "Allow"
+      Action:
+        - rekognition:DetectFaces
+      Resource: '*'
+custom:
+  buketName: ${self:service}-${opt:stage}-uploads
+functions:
+  facereplace:
+    handler: src/facereplace.handler
+    timeout: 30
+    environment:
+      BUCKET_NAME: ${self:custom.bucketName}
+      ALLOWED_EXTENSIONS: .jpg|.jpeg|.png
+      PROCESSED_DIR_NAME: processed
+    events:
+      - s3:
+        bucket: ${self:custom.bucketName}
+        event: s3.ObjectCreated:*
+        rules:
+          - prefix: uploads/
